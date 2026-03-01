@@ -25,3 +25,13 @@ def download_sample_text(filepath="the-verdict.txt"):
         with open(filepath, "wb") as f:  # Save downloaded bytes to a local file in binary mode
             f.write(response.content)
     return filepath
+
+# Build absolute path to the-verdict.txt in the same directory as this script
+filepath = download_sample_text(
+    os.path.join(os.path.dirname(__file__), "the-verdict.txt")
+)
+# Open the file in read mode and load all text into raw_text
+with open(filepath, "r", encoding="utf-8") as f:
+    raw_text = f.read()
+# Print total character count to verify the file was loaded correctly
+print(f"Total characters: {len(raw_text)}")
