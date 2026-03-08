@@ -35,3 +35,31 @@ with open(filepath, "r", encoding="utf-8") as f:
     raw_text = f.read()
 # Print total character count to verify the file was loaded correctly
 print(f"Total characters: {len(raw_text)}")
+
+# --- Preprocessing: split text into tokens ---
+def preprocess(text):
+    """Split text into tokens by punctuation and whitespace."""
+    # r'' = raw string: backslashes are passed as-is to the regex engine
+    # ([,.:;?_!"()\'"] = capture group: keeps punctuation as separate tokens
+    # |-- = match literal double dash
+    # |\s) = match any whitespace character (space, newline, tab)
+    tokens = re.split(r'([,.:;?_!"()\']|--|\s)', text)
+    # t.strip() removes surrounding whitespace; empty/whitespace-only strings are falsy and filtered out
+    return [t for t in tokens if t.strip()]
+
+# --- Build vocabulary ---
+# preprocess(raw_text): tokenize the entire text
+# set(...): remove duplicate tokens
+# sorted(...): sort alphabetically so token IDs are consistent across runs
+all_tokens = sorted(set(preprocess(raw_text)))
+vocab_size = len(all_tokens)
+print(f"Vocabulary size: {vocab_size}")
+
+# enumerate(all_tokens): yields (idx, token) pairs → (0, "!"), (1, ","), ...
+# token_to_id: maps each token string to its integer ID  e.g. {"!": 0, ",": 1, ...}
+token_to_id = {token: idx for idx, token in enumerate(all_tokens)}
+
+# invert token_to_id: swap key and value to enable ID -> token lookup
+# .items(): returns (token, idx) pairs from token_to_id
+# id_to_token: maps each integer ID back to its token string  e.g. {0: "!", 1: ",", ...}
+id_to_token = {idx: token for token, idx in token_to_id.items()}
