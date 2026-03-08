@@ -63,3 +63,43 @@ token_to_id = {token: idx for idx, token in enumerate(all_tokens)}
 # .items(): returns (token, idx) pairs from token_to_id
 # id_to_token: maps each integer ID back to its token string  e.g. {0: "!", 1: ",", ...}
 id_to_token = {idx: token for token, idx in token_to_id.items()}
+
+# --- SimpleTokenizerV1 ---
+class SimpleTokenizerV1:
+    """A minimal tokenizer that maps tokens to integer IDs.
+    
+    Limitation: raises KeyError if a token is not in the vocabulary.
+    """
+
+    def __init__(self, vocab):
+        # Store the original vocab dict as-is for token -> ID lookup
+        # e.g. {"!": 0, ",": 1, "Hello": 2, ...}
+        self.str_to_int = vocab
+
+        # Invert vocab to enable ID -> token lookup
+        # vocab.items() yields (tok, idx) pairs → swap to (idx, tok)
+        # e.g. {0: "!", 1: ",", 2: "Hello", ...}
+        self.int_to_str = {idx: tok for tok, idx in vocab.items()}
+
+    def encode(self, text):
+        """Convert text to a list of token IDs."""
+        # Split text into tokens using the same regex as preprocessing
+        # e.g. "Hello, world." → ["Hello", ",", "world", "."]
+        tokens = preprocess(text)
+
+        # Look up each token in str_to_int and return the list of IDs
+        # e.g. ["Hello", ",", "world", "."] → [2, 1, 5, 7]
+        # Raises KeyError if a token is not found in the vocabulary
+        return [self.str_to_int[t] for t in tokens]
+
+    def decode(self, ids):
+        """Convert a list of token IDs back to a string."""
+        # Look up each ID in int_to_str and join with spaces
+        # e.g. [2, 1, 5, 7] → "Hello , world ."
+        text = " ".join(self.int_to_str[i] for i in ids)
+
+        # Remove the extra space inserted before punctuation by the join above
+        # \s+ = one or more spaces, ([,.?!"()\'"] = punctuation capture group
+        # e.g. "Hello , world ." → "Hello, world."
+        text = re.sub(r'\s+([,.?!"()\'])', r"\1", text)
+        return text
