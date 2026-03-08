@@ -15,7 +15,7 @@ import requests # for downloading sample text
 def download_sample_text(filepath="the-verdict.txt"):
     """Download sample text from GitHub if not already present."""
     if not os.path.exists(filepath):  # skip download if file already exists
-        url = (　# implicit string concatenation
+        url = ( # implicit string concatenation
             "https://raw.githubusercontent.com/rasbt/"
             "LLMs-from-scratch/main/ch02/01_main-chapter-code/"
             "the-verdict.txt"
