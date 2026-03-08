@@ -103,3 +103,19 @@ class SimpleTokenizerV1:
         # e.g. "Hello , world ." → "Hello, world."
         text = re.sub(r'\s+([,.?!"()\'])', r"\1", text)
         return text
+
+# --- Demo ---
+# Instantiate the tokenizer with the vocabulary built from the-verdict.txt
+tokenizer = SimpleTokenizerV1(token_to_id)
+
+# Test text from the-verdict.txt (known tokens only, no KeyError expected)
+test_text = '"It\'s the last he painted, you know," Mrs. Gisburn said with pardonable pride.'
+print(f"Original: {test_text}")
+
+# Encode: text → list of integer IDs
+encoded = tokenizer.encode(test_text)
+print(f"Encoded : {encoded}")
+
+# Decode: list of integer IDs → text
+decoded = tokenizer.decode(encoded)
+print(f"Decoded : {decoded}")
