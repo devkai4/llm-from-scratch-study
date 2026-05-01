@@ -25,3 +25,17 @@ inputs = torch.tensor(
 )
 
 print(f"Inputs shape: {inputs.shape}")  # → torch.Size([6, 3])
+
+# --- Step 1: Compute attention scores for one query ---
+# Pick x_2 ("journey") as the query token.
+# Goal: measure how relevant every other token is to "journey".
+query = inputs[1]   # x_2 (journey), shape [3]
+
+# Compute the dot product between the query and every token in inputs.
+# Dot product is high when two vectors point in similar directions
+# → high score means "this token is similar to the query".
+attn_scores_2 = torch.empty(inputs.shape[0])  # 6 empty slots, one per token
+for i, x_i in enumerate(inputs):
+    attn_scores_2[i] = torch.dot(x_i, query)
+
+print(f"Attention scores (query=x_2): {attn_scores_2}")
