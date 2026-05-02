@@ -11,9 +11,12 @@ when the dot product grows large with high-dimensional vectors.
 
 Steps:
   1. Define input embeddings (same 6-token example as the book)
-  2. Implement SelfAttentionV1 using nn.Parameter (manual weights)
-  3. Implement SelfAttentionV2 using nn.Linear  (cleaner, bias-free)
-  4. Verify both produce equivalent results when weights are copied
+  2. Manually compute Q, K, V for a single query token (x_2)
+  3. Expand to all tokens and compute attention weights
+  4. Compute context vectors via weighted sum of values
+  5. Wrap steps 2-4 into SelfAttentionV1 (nn.Parameter)
+  6. Refactor into SelfAttentionV2 (nn.Linear, cleaner)
+  7. Verify both produce equivalent results when weights are copied
 """
 
 import torch
@@ -38,3 +41,42 @@ inputs = torch.tensor([
 
 d_in  = inputs.shape[1]  # 3
 d_out = 2
+
+# --- Step 2: Manually define W_q, W_k, W_v ---
+# Each weight matrix projects input from d_in=3 dimensions to d_out=2 dimensions
+# requires_grad=False: we are not training here, just demonstrating the mechanics
+torch.manual_seed(123)
+W_query = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)  # [3, 2]
+W_key   = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)  # [3, 2]
+W_value = torch.nn.Parameter(torch.rand(d_in, d_out), requires_grad=False)  # [3, 2]
+
+# --- Step 3: Compute Q, K, V for a single query token (x_2 = "starts") ---
+x_2 = inputs[2]                 # shape: [3]  → the query token
+query_2 = x_2 @ W_query         # [3] @ [3, 2] = [2]
+key_2   = x_2 @ W_key           # [2]
+value_2 = x_2 @ W_value         # [2]
+print(f"query_2 shape: {query_2.shape}")  # → torch.Size([2])
+
+# --- Step 4: Expand keys and values to all tokens ---
+# compute keys and values for every token in the sequence
+keys   = inputs @ W_key    # [6, 3] @ [3, 2] = [6, 2]
+values = inputs @ W_value  # [6, 3] @ [3, 2] = [6, 2]
+print(f"keys shape  : {keys.shape}")    # → torch.Size([6, 2])
+print(f"values shape: {values.shape}")  # → torch.Size([6, 2])
+
+# --- Step 5: Compute attention scores for token 2 against all tokens ---
+# query_2 @ keys.T: [2] @ [2, 6] = [6]
+# each element = dot product of query_2 with each key → raw attention score
+attn_scores_2 = query_2 @ keys.T  # [6]
+print(f"attn_scores_2: {attn_scores_2}")
+
+# Scale by sqrt(d_out) and apply softmax to get attention weights
+# scaling prevents softmax from saturating when d_out is large
+attn_weights_2 = torch.softmax(attn_scores_2 / d_out**0.5, dim=-1)  # [6]
+print(f"attn_weights_2 (sum={attn_weights_2.sum():.1f}): {attn_weights_2}")
+
+# --- Step 6: Compute context vector for token 2 ---
+# weighted sum of all value vectors
+# attn_weights_2: [6], values: [6, 2] → context_vec_2: [2]
+context_vec_2 = attn_weights_2 @ values  # [2]
+print(f"context_vec_2: {context_vec_2}")
