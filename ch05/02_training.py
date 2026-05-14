@@ -20,7 +20,11 @@ import tiktoken
 import os
 import requests
 
-# --- Reuse GPTModel and utilities from previous files ---
+
+# =============================================================================
+# 1. Model components (reused from ch04)
+# =============================================================================
+
 class GELU(nn.Module):
     def __init__(self):
         super().__init__()
@@ -115,14 +119,20 @@ class GPTModel(nn.Module):
         x = self.final_norm(x)
         return self.out_head(x)
 
-# --- Utility functions (reuse from ch05/01_loss.py) ---
+
+# =============================================================================
+# 2. Utility functions
+# =============================================================================
+
 def calc_loss_batch(input_batch, target_batch, model, device):
+    """Compute cross-entropy loss for a single batch."""
     input_batch  = input_batch.to(device)
     target_batch = target_batch.to(device)
     logits = model(input_batch)
     return nn.functional.cross_entropy(logits.flatten(0, 1), target_batch.flatten())
 
 def calc_loss_loader(data_loader, model, device, num_batches=None):
+    """Compute average cross-entropy loss over a DataLoader."""
     total_loss  = 0.0
     num_batches = min(num_batches, len(data_loader)) if num_batches else len(data_loader)
     for i, (input_batch, target_batch) in enumerate(data_loader):
@@ -132,6 +142,7 @@ def calc_loss_loader(data_loader, model, device, num_batches=None):
     return total_loss / num_batches
 
 def generate_text_simple(model, idx, max_new_tokens, context_size):
+    """Greedy decoding: repeatedly predict and append the most likely next token."""
     for _ in range(max_new_tokens):
         idx_cond = idx[:, -context_size:]
         with torch.no_grad():
@@ -139,3 +150,171 @@ def generate_text_simple(model, idx, max_new_tokens, context_size):
         idx_next = torch.argmax(logits[:, -1, :], dim=-1, keepdim=True)
         idx = torch.cat((idx, idx_next), dim=1)
     return idx
+
+def train_model_simple(model, train_loader, val_loader, optimizer, device,
+                       num_epochs, eval_freq, eval_iter, start_context, tokenizer):
+    """Simple pretraining loop with periodic loss evaluation and text generation.
+
+    Args:
+        eval_freq:     evaluate every N steps
+        eval_iter:     number of batches to use for loss estimation
+        start_context: prompt string for sample text generation
+    """
+    train_losses, val_losses, track_tokens_seen = [], [], []
+    tokens_seen = 0
+    global_step = -1
+
+    for epoch in range(num_epochs):
+        model.train()
+
+        for input_batch, target_batch in train_loader:
+            optimizer.zero_grad()                   # reset gradients from previous step
+            loss = calc_loss_batch(input_batch, target_batch, model, device)
+            loss.backward()                         # compute gradients
+            optimizer.step()                        # update weights
+            tokens_seen += input_batch.numel()
+            global_step += 1
+
+            # Periodic evaluation
+            if global_step % eval_freq == 0:
+                model.eval()
+                with torch.no_grad():
+                    train_loss = calc_loss_loader(train_loader, model, device, num_batches=eval_iter)
+                    val_loss   = calc_loss_loader(val_loader,   model, device, num_batches=eval_iter)
+                train_losses.append(train_loss)
+                val_losses.append(val_loss)
+                track_tokens_seen.append(tokens_seen)
+                print(f"Ep {epoch+1} | Step {global_step:06d} | "
+                      f"Train loss: {train_loss:.3f} | Val loss: {val_loss:.3f}")
+                model.train()
+
+        # Generate sample text after each epoch to monitor quality
+        model.eval()
+        encoded   = tokenizer.encode(start_context)
+        idx       = torch.tensor(encoded).unsqueeze(0).to(device)
+        with torch.no_grad():
+            token_ids = generate_text_simple(
+                model, idx,
+                max_new_tokens=50,
+                context_size=GPT_CONFIG_124M["context_length"]
+            )
+        print(f"  Sample: {tokenizer.decode(token_ids.squeeze(0).tolist())!r}\n")
+        model.train()
+
+    return train_losses, val_losses, track_tokens_seen
+
+
+# =============================================================================
+# 3. Dataset and DataLoader (reused from ch02)
+# =============================================================================
+
+class GPTDatasetV1(Dataset):
+    """Sliding window dataset for next-token prediction."""
+    def __init__(self, txt, tokenizer, max_length, stride):
+        token_ids = tokenizer.encode(txt, allowed_special={"<|endoftext|>"})
+        self.input_ids  = []
+        self.target_ids = []
+        for i in range(0, len(token_ids) - max_length, stride):
+            self.input_ids.append(torch.tensor(token_ids[i : i + max_length]))
+            self.target_ids.append(torch.tensor(token_ids[i + 1 : i + max_length + 1]))
+    def __len__(self):
+        return len(self.input_ids)
+    def __getitem__(self, idx):
+        return self.input_ids[idx], self.target_ids[idx]
+
+def create_dataloader(txt, tokenizer, batch_size, max_length, stride,
+                      shuffle=True, drop_last=True, num_workers=0):
+    dataset    = GPTDatasetV1(txt, tokenizer, max_length, stride)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=shuffle,
+                            drop_last=drop_last, num_workers=num_workers)
+    return dataloader
+
+
+# =============================================================================
+# 4. Config
+# =============================================================================
+
+GPT_CONFIG_124M = {
+    "vocab_size"    : 50257,
+    "context_length": 256,   # shorter than GPT-2's 1024 for faster training
+    "emb_dim"       : 768,
+    "n_heads"       : 12,
+    "n_layers"      : 12,
+    "drop_rate"     : 0.1,
+    "qkv_bias"      : False,
+}
+
+
+# =============================================================================
+# 5. Data preparation
+# =============================================================================
+
+def download_sample_text(filepath):
+    """Download the-verdict.txt if not already present."""
+    if not os.path.exists(filepath):
+        url = (
+            "https://raw.githubusercontent.com/rasbt/"
+            "LLMs-from-scratch/main/ch02/01_main-chapter-code/"
+            "the-verdict.txt"
+        )
+        response = requests.get(url, timeout=30)
+        response.raise_for_status()
+        with open(filepath, "wb") as f:
+            f.write(response.content)
+    return filepath
+
+filepath = download_sample_text(
+    os.path.join(os.path.dirname(__file__), "../ch02/the-verdict.txt")
+)
+with open(filepath, "r", encoding="utf-8") as f:
+    raw_text = f.read()
+
+tokenizer  = tiktoken.get_encoding("gpt2")
+split_idx  = int(len(raw_text) * 0.9)
+train_text = raw_text[:split_idx]
+val_text   = raw_text[split_idx:]
+
+train_loader = create_dataloader(
+    train_text, tokenizer,
+    batch_size=2, max_length=GPT_CONFIG_124M["context_length"],
+    stride=GPT_CONFIG_124M["context_length"],
+    shuffle=True, drop_last=True
+)
+val_loader = create_dataloader(
+    val_text, tokenizer,
+    batch_size=2, max_length=GPT_CONFIG_124M["context_length"],
+    stride=GPT_CONFIG_124M["context_length"],
+    shuffle=False, drop_last=False
+)
+
+print(f"Train batches: {len(train_loader)}")
+print(f"Val   batches: {len(val_loader)}")
+
+
+# =============================================================================
+# 6. Run training
+# =============================================================================
+
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Using device: {device}\n")
+
+torch.manual_seed(123)
+model = GPTModel(GPT_CONFIG_124M)
+model.to(device)
+
+# AdamW: Adam optimizer with weight decay
+# weight decay penalizes large weights → reduces overfitting
+optimizer = torch.optim.AdamW(model.parameters(), lr=0.0004, weight_decay=0.1)
+
+train_losses, val_losses, tokens_seen = train_model_simple(
+    model, train_loader, val_loader, optimizer, device,
+    num_epochs=10,
+    eval_freq=5,
+    eval_iter=5,
+    start_context="Every effort moves you",
+    tokenizer=tokenizer
+)
+
+print("Training complete.")
+print(f"Final train loss: {train_losses[-1]:.3f}")
+print(f"Final val loss  : {val_losses[-1]:.3f}")
