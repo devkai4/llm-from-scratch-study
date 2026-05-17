@@ -1,2 +1,3 @@
 .venv/
 **/*.pth
+ch05/gpt2_weights/
