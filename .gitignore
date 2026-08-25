@@ -1,3 +1,8 @@
 .venv/
 **/*.pth
 ch05/gpt2_weights/
+
+# Ch06 dataset artifacts
+ch06/sms_spam_collection.zip
+ch06/sms_spam_collection/
+ch06/*.csv
